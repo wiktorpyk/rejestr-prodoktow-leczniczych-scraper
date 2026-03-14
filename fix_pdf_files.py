@@ -107,6 +107,8 @@ class PDFRepairer:
         file_type = self.get_file_type(file_path)
         if 'Rich Text Format' in file_type:
             temp_ext = '.rtf'
+        elif 'Microsoft Word 2007+' in file_type:
+            temp_ext = '.docx'
         else:
             temp_ext = '.doc'
         
@@ -164,6 +166,26 @@ class PDFRepairer:
             log.debug(f"Already valid PDF: {file_path}")
             return True
 
+        # Handle corrupted files (like Macintosh MFS data) - but first check if it might have XMP metadata
+        if 'Macintosh MFS data' in file_type:
+            # Check if it might actually be a PDF with XMP metadata
+            pdf_start = self.find_pdf_start(file_path)
+            if pdf_start >= 0:
+                self.stats['xmp_metadata_files'] += 1
+                success = self.fix_xmp_metadata_file(file_path, pdf_start)
+                if success:
+                    self.stats['processed_files'] += 1
+                return success
+            else:
+                log.warning(f"Corrupted or unreadable file: {file_path} -> {file_type}")
+                self.stats['errors'] += 1
+                return False
+
+        if file_type == 'data' or (file_type.endswith(': data') and not file_type.startswith('PDF')):
+            log.warning(f"Corrupted or unreadable file: {file_path} -> {file_type}")
+            self.stats['errors'] += 1
+            return False
+
         # Handle XMP metadata files (identified as "data" but containing PDF)
         if file_type.endswith(': data'):
             pdf_start = self.find_pdf_start(file_path)
@@ -186,6 +208,14 @@ class PDFRepairer:
 
         # Handle RTF files
         if 'Rich Text Format' in file_type:
+            self.stats['word_documents'] += 1
+            success = self.convert_word_document(file_path)
+            if success:
+                self.stats['processed_files'] += 1
+            return success
+
+        # Handle Microsoft Word 2007+ files
+        if 'Microsoft Word 2007+' in file_type:
             self.stats['word_documents'] += 1
             success = self.convert_word_document(file_path)
             if success:
